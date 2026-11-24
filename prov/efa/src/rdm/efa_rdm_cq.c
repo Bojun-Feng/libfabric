@@ -907,7 +907,7 @@ enum ibv_wc_status efa_rdm_cq_process_wc(struct efa_ibv_cq *cq, struct efa_rdm_e
 				break;
 			}
 			assert(pkt_entry);
-			efa_rdm_pke_handle_rx_error(pkt_entry, prov_errno);
+			efa_rdm_pke_handle_rx_error(pkt_entry, prov_errno, opcode);
 			efa_rdm_cq_increment_pkt_entry_gen(pkt_entry);
 			break;
 		default:

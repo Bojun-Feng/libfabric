@@ -513,6 +513,7 @@ void test_ibv_cq_ex_read_bad_recv_rdma_with_imm_status_impl(void **state, bool u
 	struct efa_rdm_ep *efa_rdm_ep;
 	struct efa_resource *resource = *state;
 	struct fi_cq_data_entry cq_entry;
+	struct fi_cq_err_entry cq_err_entry = {0};
 	struct fi_eq_err_entry eq_err_entry = {0};
 	int ret;
 	struct efa_rdm_cq *efa_rdm_cq;
@@ -581,33 +582,20 @@ void test_ibv_cq_ex_read_bad_recv_rdma_with_imm_status_impl(void **state, bool u
 	ibv_cq->ibv_cq_ex->wr_id = (uint64_t)pkt_entry | (uint64_t)pkt_entry->gen;
 #endif
 	/* Unsolicited: no RX pkt --> CQ err w/ NULL op_context.
-	 * Solicited: RX pkt consumed; mock has no ope --> falls back to EQ.
+	 * Solicited: RX pkt consumed; no ope --> same CQ err.
 	 */
 	ibv_cq->ibv_cq_ex->status = IBV_WC_GENERAL_ERR;
 	ret = fi_cq_read(resource->cq, &cq_entry, 1);
 
-#if HAVE_CAPS_UNSOLICITED_WRITE_RECV
-	if (use_unsolicited_recv) {
-		struct fi_cq_err_entry cq_err_entry = {0};
-
-		assert_int_equal(ret, -FI_EAVAIL);
-		ret = fi_cq_readerr(resource->cq, &cq_err_entry, 0);
-		assert_int_equal(ret, 1);
-		assert_null(cq_err_entry.op_context);
-		assert_true((cq_err_entry.flags & (FI_REMOTE_CQ_DATA | FI_RMA | FI_REMOTE_WRITE)) == (FI_REMOTE_CQ_DATA | FI_RMA | FI_REMOTE_WRITE));
-		assert_int_not_equal(cq_err_entry.err, FI_SUCCESS);
-		assert_int_equal(cq_err_entry.prov_errno, EFA_IO_COMP_STATUS_FLUSHED);
-		ret = fi_eq_readerr(resource->eq, &eq_err_entry, 0);
-		assert_int_equal(ret, -FI_EAGAIN);
-	} else
-#endif
-	{
-		assert_int_equal(ret, -FI_EAGAIN);
-		ret = fi_eq_readerr(resource->eq, &eq_err_entry, 0);
-		assert_int_equal(ret, sizeof(eq_err_entry));
-		assert_int_not_equal(eq_err_entry.err, FI_SUCCESS);
-		assert_int_equal(eq_err_entry.prov_errno, EFA_IO_COMP_STATUS_FLUSHED);
-	}
+	assert_int_equal(ret, -FI_EAVAIL);
+	ret = fi_cq_readerr(resource->cq, &cq_err_entry, 0);
+	assert_int_equal(ret, 1);
+	assert_null(cq_err_entry.op_context);
+	assert_true((cq_err_entry.flags & (FI_REMOTE_CQ_DATA | FI_RMA | FI_REMOTE_WRITE)) == (FI_REMOTE_CQ_DATA | FI_RMA | FI_REMOTE_WRITE));
+	assert_int_not_equal(cq_err_entry.err, FI_SUCCESS);
+	assert_int_equal(cq_err_entry.prov_errno, EFA_IO_COMP_STATUS_FLUSHED);
+	ret = fi_eq_readerr(resource->eq, &eq_err_entry, 0);
+	assert_int_equal(ret, -FI_EAGAIN);
 
 	/* reset the mocked cq before it's polled by ep close */
 	will_return_int_always(efa_mock_efa_ibv_cq_start_poll_return_mock, ENOENT);

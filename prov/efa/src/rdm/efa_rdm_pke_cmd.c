@@ -7,6 +7,7 @@
 #include "efa_rdm_mr.h"
 #include "efa_rdm_msg.h"
 #include "efa_rdm_pke_cmd.h"
+#include "efa_rdm_cq.h"
 #include "efa_rdm_pke_rtm.h"
 #include "efa_rdm_pke_rtw.h"
 #include "efa_rdm_proto.h"
@@ -350,8 +351,10 @@ void efa_rdm_pke_handle_send_completion(struct efa_rdm_pke *pkt_entry)
  *
  * @param[in]	pkt_entry	pkt entry
  * @param[in]	prov_errno	provider specific error code
+ * @param[in]	opcode		opcode of the failed work completion
  */
-void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
+void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry, int prov_errno,
+				 enum ibv_wc_opcode opcode)
 {
 	struct efa_rdm_ep *ep;
 	int err = to_fi_errno(prov_errno);
@@ -371,6 +374,22 @@ void efa_rdm_pke_handle_rx_error(struct efa_rdm_pke *pkt_entry, int prov_errno)
 	 * pkes posted by efa_rdm_ep_bulk_post_internal_rx_pkts
 	 * are not associated with ope before being progressed
 	 */
+	if (!pkt_entry->ope && opcode == IBV_WC_RECV_RDMA_WITH_IMM) {
+		/*
+		 * A failed RDMA write with CQ data that consumed an internal rx
+		 * pkt is reported the same way as the unsolicited case.
+		 */
+		struct fi_cq_err_entry err_entry = {0};
+
+		err_entry.flags = FI_REMOTE_CQ_DATA | FI_RMA | FI_REMOTE_WRITE;
+		err_entry.err = err;
+		err_entry.prov_errno = prov_errno;
+		efa_rdm_cq_write_error(&ep->base_ep, ep->base_ep.util_ep.rx_cq,
+				       &err_entry, "solicited write recv");
+		efa_rdm_pke_release_rx(pkt_entry);
+		return;
+	}
+
 	if (!pkt_entry->ope) {
 		char ep_addr_str[OFI_ADDRSTRLEN];
 		size_t buflen=0;
